@@ -5,4 +5,4 @@ config safely (with backup and diff). Lets scripts and hooks control which serve
 active to save context.
 """
 
-__version__ = "0.1.0"
+__version__ = '0.1.0'

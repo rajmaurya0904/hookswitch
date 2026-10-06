@@ -18,7 +18,14 @@ TODO.
 
 ## FAQ
 
-TODO.
+**Where are backups stored?**
+Backups are stored in the `.hookswitch/backups` directory within your project.
+
+**Where are recipe files located?**
+Recipe files are located in the `.hookswitch/recipes` directory within your project.
+
+**I'm having issues with hookswitch not toggling servers. What should I check?**
+Ensure that the hookswitch configuration file (`.hookswitch/config.yaml`) is correctly formatted and that the MCP server names match those in your config. You can run `hookswitch diff` to see what changes would be made.
 
 ## License
 

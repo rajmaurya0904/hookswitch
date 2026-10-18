@@ -6,6 +6,9 @@ requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = ["pyyaml>=6.0"]
 
+[project.scripts]
+hookswitch = "hookswitch.cli:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",

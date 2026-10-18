@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "hookswitch run lean --recipes-dir docs/recipes --config .mcp.json --quiet"
+          }
+        ]
+      }
+    ]
+  }
+}

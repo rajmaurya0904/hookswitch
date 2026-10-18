@@ -110,15 +110,12 @@ def ensure_config(path: str | Path) -> tuple[dict, bool]:
     return config, True
 
 
-def toggle_server(config: dict, server_name: str, enabled: bool) -> dict:
-    """Flip the enabled flag for a server in the config.
+def toggle_server(config: dict, server_name: str, enabled: bool, fmt: str | None = None) -> dict:
+    """Return a copy of *config* with *server_name* switched on or off.
 
-    Returns a new config dict with the server's ``enabled`` value set to
-    ``enabled``. The input dict is not modified.
+    The layout is auto-detected (see :mod:`hookswitch.formats`) unless *fmt* is
+    given. The input dict is never modified. An unknown server raises ``KeyError``.
     """
-    new_config = json.loads(json.dumps(config))
-    servers = new_config.setdefault("servers", {})
-    if server_name not in servers:
-        raise KeyError(server_name)
-    servers[server_name]["enabled"] = enabled
-    return new_config
+    from .formats import set_enabled
+
+    return set_enabled(config, server_name, enabled, fmt)

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import tempfile
 from pathlib import Path
+from typing import Any
 
 
 class ConfigError(Exception):
@@ -69,19 +71,63 @@ def detect_indent(text: str) -> str | int:
     return 2
 
 
+INLINE_LIMIT = 120
+_INLINE_LINE = re.compile(r'^\s*"[^"]*":\s*[\[{].*[\]}],?\s*$', re.MULTILINE)
+
+
+def _simple(value: Any) -> bool:
+    return not isinstance(value, (dict, list))
+
+
+def _inlinable(value: Any) -> bool:
+    """True for a small container whose children are scalars or lists of scalars."""
+    if isinstance(value, list):
+        return all(_simple(v) for v in value)
+    if isinstance(value, dict):
+        return all(_simple(v) or (isinstance(v, list) and _inlinable(v)) for v in value.values())
+    return False
+
+
+def _dump(value: Any, unit: str, level: int, compact: bool) -> str:
+    if isinstance(value, dict) and value:
+        if compact and level > 0 and _inlinable(value):
+            flat = json.dumps(value, ensure_ascii=False)
+            if len(flat) <= INLINE_LIMIT:
+                return flat
+        pad = unit * (level + 1)
+        items = [
+            f"{pad}{json.dumps(k, ensure_ascii=False)}: {_dump(v, unit, level + 1, compact)}"
+            for k, v in value.items()
+        ]
+        return "{\n" + ",\n".join(items) + "\n" + unit * level + "}"
+    if isinstance(value, list) and value:
+        if compact and level > 0 and _inlinable(value):
+            flat = json.dumps(value, ensure_ascii=False)
+            if len(flat) <= INLINE_LIMIT:
+                return flat
+        pad = unit * (level + 1)
+        items = [f"{pad}{_dump(v, unit, level + 1, compact)}" for v in value]
+        return "[\n" + ",\n".join(items) + "\n" + unit * level + "]"
+    return json.dumps(value, ensure_ascii=False)
+
+
 def render_config(data: dict, original_text: str | None = None) -> str:
     """Serialise *data* as JSON.
 
-    When *original_text* is given, its indent width and trailing newline are
-    reused so that a toggle changes only the lines that really changed.
+    When *original_text* is given its style is reused: the indent width, the
+    final newline, and whether small objects such as ``{"enabled": true}`` were
+    written on one line. That keeps the diff of a toggle down to what changed.
     """
     if original_text is None or not original_text.strip():
         indent: str | int = 2
         newline = True
+        compact = False
     else:
         indent = detect_indent(original_text)
         newline = original_text.endswith("\n")
-    out = json.dumps(data, indent=indent, ensure_ascii=False)
+        compact = bool(_INLINE_LINE.search(original_text))
+    unit = indent if isinstance(indent, str) else " " * indent
+    out = _dump(data, unit, 0, compact)
     return out + "\n" if newline else out
 
 

@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Small CLI plus hook recipes to toggle MCP servers per project or per session by editing config safely (with backup and diff). Lets scripts and hooks control which servers are active to save context."
 requires-python = ">=3.11"
 license = { text = "MIT" }
-dependencies = []
+dependencies = ["pyyaml>=6.0"]
 
 [project.optional-dependencies]
 dev = [

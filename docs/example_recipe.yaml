@@ -1,8 +1,0 @@
-# Example recipe for hookswitch toggles
-servers:
-  web-server:
-    enabled: true
-  database:
-    enabled: false
-  cache:
-    enabled: true

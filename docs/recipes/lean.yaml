@@ -1,0 +1,7 @@
+# Docs and writing sessions: keep GitHub, drop the heavy servers.
+description: Docs work, no database or browser
+enable:
+  - github
+disable:
+  - postgres
+  - puppeteer

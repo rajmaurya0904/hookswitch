@@ -1,0 +1,6 @@
+# Everything on, for debugging sessions.
+description: All servers on
+servers:
+  github: true
+  postgres: true
+  puppeteer: true

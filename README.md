@@ -1,131 +1,119 @@
 # hookswitch
 
-**Flip MCP servers on and off in a JSON config file without losing the file to a bad write — every edit is backed up first and shown to you as a diff.**
-
-**Status: early and incomplete.** The three library pieces work and are tested:
-config load/save/toggle, timestamped backups with rotation, and unified diffs.
-There is **no CLI yet** — no `hookswitch` command and no `python -m hookswitch`.
-You call it from Python (or a hook script) as shown below.
+**Switch MCP servers on and off in a config file from the command line or a hook, with a backup and a diff for every edit.**
 
 ## The problem
 
-Every MCP server you leave switched on eats context before you have typed a word.
-Turning them off per project means hand-editing a JSON config, which is exactly the
-kind of file you do not want to corrupt from inside a pre-session hook at 2am.
-hookswitch does the boring safety part: copy the file, flip the flag, show you what
-changed.
+Every MCP server you leave switched on spends context before you have typed a word, and `.mcp.json` has no on/off switch: to turn the Postgres server off for a docs session you delete a block, then paste it back next week. Doing that from a script means rewriting a JSON file you care about. hookswitch does the rewrite carefully (atomic write, timestamped backup, diff of what changed) and lets a named recipe flip several servers in one go.
 
 ## Real output
 
-A three-server config, with two of them switched off:
+A `.mcp.json` with three servers, and a recipe called `lean` that keeps GitHub and drops the other two:
 
 ```console
-$ cat mcp.json
-{
-  "servers": {
-    "github": {"enabled": true},
-    "postgres": {"enabled": true},
-    "puppeteer": {"enabled": true}
-  }
-}
+$ hookswitch list
+NAME       STATE
+github     on
+postgres   on
+puppeteer  on
 
-$ python off.py
-backup: mcp.json.bak.20261011141544113500
----
-+++
-@@ -1,7 +1,13 @@
+3 of 3 enabled (.mcp.json)
+
+$ hookswitch run lean
+disable postgres
+disable puppeteer
+--- .mcp.json (before)
++++ .mcp.json (after)
+@@ -1,6 +1,8 @@
  {
-   "servers": {
--    "github": {"enabled": true},
--    "postgres": {"enabled": true},
--    "puppeteer": {"enabled": true}
-+    "github": {
-+      "enabled": true
-+    },
-+    "postgres": {
-+      "enabled": false
-+    },
-+    "puppeteer": {
-+      "enabled": false
-+    }
+   "mcpServers": {
+-    "github": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"]},
++    "github": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"]}
++  },
++  "hookswitchDisabled": {
+     "postgres": {"command": "uvx", "args": ["mcp-server-postgres"]},
+     "puppeteer": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-puppeteer"]}
    }
--}
-+}
+backup: .mcp.json.bak.20261018093541554634
+
+$ hookswitch status
+github
+
+$ hookswitch undo
+restored .mcp.json from .mcp.json.bak.20261018093541554634
+--- .mcp.json (before)
++++ .mcp.json (after)
+@@ -1,8 +1,6 @@
+ {
+   "mcpServers": {
+-    "github": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"]}
+-  },
+-  "hookswitchDisabled": {
++    "github": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"]},
+     "postgres": {"command": "uvx", "args": ["mcp-server-postgres"]},
+     "puppeteer": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-puppeteer"]}
+   }
 ```
 
-`off.py` is the whole of it — this is the script that produced the output above:
-
-```python
-from hookswitch.backup import backup_file
-from hookswitch.config import load_config, save_config, toggle_server
-from hookswitch.diff import get_diff
-
-PATH = "mcp.json"
-before = open(PATH).read()
-
-print("backup:", backup_file(PATH, keep=3).name)
-
-cfg = load_config(PATH)
-for name in ("postgres", "puppeteer"):
-    cfg = toggle_server(cfg, name, False)
-save_config(cfg, PATH)
-
-print(get_diff(before, open(PATH).read()))
-```
+The disabled servers are not deleted: they are moved, unchanged, under `hookswitchDisabled`, and `undo` (or `enable`) puts them back.
 
 ## Install
 
-Not on PyPI. Clone it and install from the working tree:
+Not on PyPI yet. Clone the repo and install from the working tree (Python 3.11 or newer):
 
 ```bash
-pip install -e ".[dev]"
+pip install -e .
 ```
 
 ## Usage
 
-There is no command-line interface. The public surface is five functions:
-
-```python
-load_config(path)                      # dict, or {} if the file is absent
-toggle_server(config, name, enabled)   # new dict; raises KeyError on unknown name
-save_config(config, path)              # writes JSON, creating parent dirs
-backup_file(path, keep=3)              # <path>.bak.<timestamp>, prunes older ones
-get_diff(old_text, new_text)           # unified diff string, "" if identical
+```bash
+hookswitch list                          # every server and whether it is on (--json for scripts)
+hookswitch disable postgres puppeteer    # switch off; `enable` and `toggle [--on|--off]` also work
+hookswitch run lean                      # apply a recipe: one backup, one diff
+hookswitch check postgres || echo off    # exit 0 if on, 3 if off, 1 on error; for hooks
 ```
 
-`docs/example_recipe.yaml` sketches the recipe format the eventual CLI is meant to
-read. Nothing in the package parses it today.
+Add `--dry-run` to any edit to see the diff without writing, `--quiet` to print nothing, and `--color` to colour the diff (it is plain when output is not a terminal). `hookswitch recipes` lists recipes, `hookswitch backups` lists the backups, and `hookswitch undo` restores the newest one, repeatedly if you keep going.
+
+**Which file?** `--config FILE`, else `$HOOKSWITCH_CONFIG`, else the first of `.mcp.json`, `mcp.json`, `hookswitch.json` in the current directory. If none exist, `hookswitch.json` is created with an empty `{"servers": {}}`. A path you name explicitly must already exist.
+
+**Recipes** are small YAML or JSON files named after the recipe, looked up in `.hookswitch/recipes/` and then `~/.config/hookswitch/recipes/` (or `--recipes-dir`). See [docs/recipes](docs/recipes):
+
+```yaml
+description: Docs work, no database or browser
+enable: [github]
+disable: [postgres, puppeteer]
+```
+
+`servers:` (`name: true/false`) and `toggles:` (`- {server: x, enabled: false}`) are also accepted. A recipe naming a server that is not in the config fails without touching the file, unless you pass `--skip-missing`.
+
+**As a hook.** [docs/example_hook_settings.json](docs/example_hook_settings.json) shows a Claude Code `SessionStart` hook that runs `hookswitch run lean --quiet`. See Limitations before relying on it.
 
 ## How it works
 
-- **Config** is plain JSON with a top-level `servers` object, each entry carrying an
-  `enabled` boolean. Nothing else is inspected.
-- **`toggle_server`** deep-copies through `json.dumps`/`json.loads`, so your input
-  dict is never mutated. An unknown server name is a `KeyError`, not a silent insert.
-- **`backup_file`** copies with `shutil.copy2` to `<name>.bak.<YYYYMMDDHHMMSSffffff>`,
-  then globs `<name>.bak.*`, sorts by mtime and deletes the oldest until `keep` remain.
-- **`get_diff`** is `difflib.unified_diff` over `splitlines(keepends=True)`.
-- **Backups live next to the file**, not in a `.hookswitch/` directory.
+- It reads the file as JSON and picks a layout from its shape. `servers.<name>.enabled` is flipped in place. For `mcpServers` (`.mcp.json`, Claude Desktop), which has no switch, a disabled server is moved to a top-level `hookswitchDisabled` object. For a Claude Code settings file, names move between `enabledMcpjsonServers` and `disabledMcpjsonServers`. `--format` overrides the guess.
+- Before writing, it copies the file to `<name>.bak.<timestamp>` next to it and keeps the newest 3 (`--keep N`). Only files with exactly that name pattern are ever pruned.
+- The new content goes to a temp file in the same directory and replaces the original with `os.replace`, so a crash cannot leave half a file.
+- It re-uses the original indentation, final newline and one-line `{...}` objects, so the diff shows only the servers that moved.
+- Setting a server to the state it is already in changes nothing and makes no backup.
 
 ## Limitations
 
-- No CLI, no `hookswitch diff`, no hook installer. Those are the parts that would
-  make this a tool rather than three helpers.
-- JSON only. The YAML recipe file in `docs/` is documentation, not an input.
-- `save_config` rewrites the whole file with `indent=2`, so your original formatting
-  and any comments are gone — see the diff above, where untouched lines got reflowed.
-- Nothing validates that the config is really an MCP config, or that the server names
-  mean anything to your client.
-- `get_diff` emits bare `---`/`+++` headers with no filenames or timestamps.
-- Backup rotation ranks by mtime. Two backups written within the same filesystem tick
-  can be pruned in an arbitrary order.
+- It edits a file; it does not talk to a running MCP client. Whether and when a client re-reads the file is up to the client. I have not verified that a `SessionStart` hook edit takes effect in the same Claude Code session; running hookswitch before the client starts (an alias or wrapper script) is the dependable way.
+- `hookswitchDisabled` is a key hookswitch invented. I have not checked that every client tolerates an unknown top-level key; if one does not, use the `servers`/`enabled` layout or the settings layout.
+- JSON only. Comments (JSONC) are rejected as invalid JSON. Formatting is preserved by heuristic, so an unusually formatted file can be reflowed on its first edit; `--dry-run` shows you before it happens.
+- A server re-enabled from `hookswitchDisabled` is appended after the others, so key order can change.
+- The settings layout cannot know which names are real servers, so it accepts any name.
+- No file locking: two hookswitch runs (or a hook plus an editor) writing at once can overwrite each other.
+- Config discovery looks only in the current directory; there is no search up the tree and no user-level default.
 
 ## Development
 
 ```bash
 pip install -e ".[dev]"
-pytest -q        # 19 tests
+pytest -q        # 178 tests
 ruff check .
 ```
 
-MIT — see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE).
